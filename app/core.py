@@ -212,6 +212,8 @@ class FluxEngine:
             control_image_b64: Base64-encoded control image (empty for text-only)
             control_mode: ControlNet mode (canny, tile, depth, blur, pose, gray, low_quality)
             controlnet_conditioning_scale: How strongly the control image influences output (0.0-2.0)
+            ip_adapter_images_b64: List of base64-encoded reference images for IP-Adapter (None to disable)
+            adapter_strength: IP-Adapter influence strength (0.0-2.0, default 0.8)
 
         Returns:
             GenerationResult with generated image
