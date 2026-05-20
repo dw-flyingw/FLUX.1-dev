@@ -65,6 +65,8 @@ class GenerationResult:
     generation_time: float
     control_mode: str = ""
     controlnet_conditioning_scale: float = 0.0
+    ip_adapter_used: bool = False
+    adapter_strength: float = 0.0
     timestamp: datetime = field(default_factory=datetime.now)
 
     def save(self, path: Path) -> None:
@@ -82,6 +84,9 @@ class GenerationResult:
         if self.control_mode:
             save_metadata["control_mode"] = self.control_mode
             save_metadata["controlnet_conditioning_scale"] = str(self.controlnet_conditioning_scale)
+        if self.ip_adapter_used:
+            save_metadata["ip_adapter_used"] = "true"
+            save_metadata["adapter_strength"] = str(self.adapter_strength)
 
         save_with_metadata(self.image, path, save_metadata)
 
@@ -98,6 +103,9 @@ class GenerationResult:
         if self.control_mode:
             d["control_mode"] = self.control_mode
             d["controlnet_conditioning_scale"] = self.controlnet_conditioning_scale
+        if self.ip_adapter_used:
+            d["ip_adapter_used"] = self.ip_adapter_used
+            d["adapter_strength"] = self.adapter_strength
         return d
 
 
