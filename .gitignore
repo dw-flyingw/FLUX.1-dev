@@ -44,3 +44,4 @@ test_output_*.png
 
 # Downloaded model weights
 models/
+test_outputs/

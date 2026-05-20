@@ -5,7 +5,7 @@ sys.modules['torch'] = MagicMock()
 sys.modules['diffusers'] = MagicMock()
 sys.modules['diffusers.FluxPipeline'] = MagicMock()
 sys.modules['uvicorn'] = MagicMock()
-sys.modules['fastapi'] = MagicMock()
+sys.modules['fastapi'] = MagicMock()  # NOTE: this makes HTTPException a MagicMock; do not add infer() tests here
 sys.modules['PIL'] = MagicMock()
 sys.modules['PIL.Image'] = MagicMock()
 # pydantic must be real for BaseModel/Field to work

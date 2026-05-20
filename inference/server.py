@@ -422,19 +422,19 @@ async def infer(req: InferRequest):
                 ]
             )
 
-    scheduler_cls = SCHEDULER_MAP.get(req.sampler)
-    if scheduler_cls:
-        current_pipe.scheduler = scheduler_cls.from_config(
-            current_pipe.scheduler.config
-        )
-
-    # Set IP-Adapter scale; reset to 0 when not in use so prior state doesn't bleed
-    current_pipe.set_ip_adapter_scale(req.adapter_strength if use_ip_adapter else 0.0)
-
     generator = torch.Generator(device=_get_generator_device()).manual_seed(req.seed)
 
     try:
         with inference_lock:
+            # Mutate shared pipeline state inside the lock to prevent races
+            scheduler_cls = SCHEDULER_MAP.get(req.sampler)
+            if scheduler_cls:
+                current_pipe.scheduler = scheduler_cls.from_config(
+                    current_pipe.scheduler.config
+                )
+            # Reset to 0 when not using IP-Adapter so prior state doesn't bleed
+            current_pipe.set_ip_adapter_scale(req.adapter_strength if use_ip_adapter else 0.0)
+
             if use_controlnet and use_ip_adapter:
                 result = current_pipe(
                     prompt=req.prompt,

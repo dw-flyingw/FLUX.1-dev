@@ -7,6 +7,7 @@ Requires both servers running:
 """
 import base64
 import io
+import os
 import sys
 import time
 
@@ -15,6 +16,7 @@ from PIL import Image, ImageDraw
 
 BASE_URL = "http://localhost:8630"
 TIMEOUT = 300
+OUTPUT_DIR = "test_outputs"
 
 
 def make_reference_image(width: int = 512, height: int = 512, color: str = "blue") -> str:
@@ -80,7 +82,8 @@ def test_ip_adapter_only_single_image():
     artifact = resp.json().get("artifacts", [{}])[0]
     if artifact.get("finishReason") == "SUCCESS" and artifact.get("base64"):
         img = Image.open(io.BytesIO(base64.b64decode(artifact["base64"])))
-        img.save("test_output_ip_adapter_single.png")
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        img.save(f"{OUTPUT_DIR}/ip_adapter_single.png")
         print(f"PASS - {img.size[0]}x{img.size[1]}, {elapsed:.1f}s")
         return True
     print(f"FAIL - {artifact.get('finishReason')}: {artifact.get('errorReason')}")
@@ -108,7 +111,8 @@ def test_ip_adapter_only_multiple_images():
     artifact = resp.json().get("artifacts", [{}])[0]
     if artifact.get("finishReason") == "SUCCESS" and artifact.get("base64"):
         img = Image.open(io.BytesIO(base64.b64decode(artifact["base64"])))
-        img.save("test_output_ip_adapter_multi.png")
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        img.save(f"{OUTPUT_DIR}/ip_adapter_multi.png")
         print(f"PASS - {img.size[0]}x{img.size[1]}, {elapsed:.1f}s")
         return True
     print(f"FAIL - {artifact.get('finishReason')}: {artifact.get('errorReason')}")
@@ -160,7 +164,8 @@ def test_controlnet_and_ip_adapter_combined():
     artifact = resp.json().get("artifacts", [{}])[0]
     if artifact.get("finishReason") == "SUCCESS" and artifact.get("base64"):
         img = Image.open(io.BytesIO(base64.b64decode(artifact["base64"])))
-        img.save("test_output_combined.png")
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        img.save(f"{OUTPUT_DIR}/combined.png")
         print(f"PASS - {img.size[0]}x{img.size[1]}, {elapsed:.1f}s")
         return True
     print(f"FAIL - {artifact.get('finishReason')}: {artifact.get('errorReason')}")
