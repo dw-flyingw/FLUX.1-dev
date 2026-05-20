@@ -129,6 +129,8 @@ async def generate(
     control_mode: str = Form("canny"),
     controlnet_conditioning_scale: float = Form(0.5),
     control_image: UploadFile | None = File(None),
+    ip_adapter_images: list[UploadFile] | None = File(None),
+    adapter_strength: float = Form(0.8),
 ):
     """Generate image with optional control image, returns SSE stream."""
     # Read and encode control image if provided
@@ -137,6 +139,16 @@ async def generate(
         control_bytes = await control_image.read()
         if control_bytes:
             control_image_b64 = base64.b64encode(control_bytes).decode("utf-8")
+
+    ip_adapter_images_b64: list[str] = []
+    if ip_adapter_images:
+        for img_file in ip_adapter_images:
+            if img_file is not None and img_file.filename:
+                img_bytes = await img_file.read()
+                if img_bytes:
+                    ip_adapter_images_b64.append(
+                        base64.b64encode(img_bytes).decode("utf-8")
+                    )
 
     async def event_stream():
         import json as json_module
@@ -157,6 +169,8 @@ async def generate(
                     control_image_b64=control_image_b64,
                     control_mode=control_mode,
                     controlnet_conditioning_scale=controlnet_conditioning_scale,
+                    ip_adapter_images_b64=ip_adapter_images_b64,
+                    adapter_strength=adapter_strength,
                 ),
             )
 
@@ -175,6 +189,9 @@ async def generate(
             if result.control_mode:
                 result_dict["control_mode"] = result.control_mode
                 result_dict["controlnet_conditioning_scale"] = result.controlnet_conditioning_scale
+            if result.ip_adapter_used:
+                result_dict["ip_adapter_used"] = result.ip_adapter_used
+                result_dict["adapter_strength"] = result.adapter_strength
 
             try:
                 gallery_path = get_asset_path("generated")
