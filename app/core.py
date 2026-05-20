@@ -196,6 +196,8 @@ class FluxEngine:
         control_image_b64: str = "",
         control_mode: str = "canny",
         controlnet_conditioning_scale: float = 0.5,
+        ip_adapter_images_b64: list[str] | None = None,
+        adapter_strength: float = 0.8,
     ) -> GenerationResult:
         """Generate image from prompt, optionally with a control image.
 
@@ -242,6 +244,10 @@ class FluxEngine:
                 f"Invalid control mode. Must be one of: {CONTROL_MODES}"
             )
 
+        if ip_adapter_images_b64:
+            if not (0.0 <= adapter_strength <= 2.0):
+                raise ValidationError("adapter_strength must be between 0.0 and 2.0")
+
         if seed == -1:
             seed = random.randint(0, 2**32 - 1)
 
@@ -263,6 +269,10 @@ class FluxEngine:
             payload["control_image"] = control_image_b64
             payload["control_mode"] = control_mode
             payload["controlnet_conditioning_scale"] = controlnet_conditioning_scale
+
+        if ip_adapter_images_b64:
+            payload["ip_adapter_images"] = ip_adapter_images_b64
+            payload["adapter_strength"] = adapter_strength
 
         start_time = time.time()
         try:
@@ -348,4 +358,6 @@ class FluxEngine:
             generation_time=generation_time,
             control_mode=control_mode if control_image_b64 else "",
             controlnet_conditioning_scale=controlnet_conditioning_scale if control_image_b64 else 0.0,
+            ip_adapter_used=bool(ip_adapter_images_b64),
+            adapter_strength=adapter_strength if ip_adapter_images_b64 else 0.0,
         )
