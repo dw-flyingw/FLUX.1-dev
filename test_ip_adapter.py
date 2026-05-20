@@ -176,7 +176,7 @@ def test_invalid_adapter_strength_rejected():
     print("7. Invalid adapter_strength (5.0) rejected...", end=" ", flush=True)
     payload = {
         "prompt": "test",
-        "ip_adapter_images": [make_reference_image(64, 64)],
+        "ip_adapter_images": [make_reference_image(128, 128)],
         "adapter_strength": 5.0,
         "width": 512,
         "height": 512,
