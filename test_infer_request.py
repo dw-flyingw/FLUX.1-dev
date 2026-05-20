@@ -11,6 +11,7 @@ sys.modules['PIL.Image'] = MagicMock()
 # pydantic must be real for BaseModel/Field to work
 sys.path.insert(0, "inference")
 import pytest
+from pydantic import ValidationError
 from server import InferRequest
 
 
@@ -31,10 +32,10 @@ def test_infer_request_ip_adapter_fields():
 
 
 def test_infer_request_adapter_strength_too_high():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         InferRequest(prompt="test", adapter_strength=2.5)
 
 
 def test_infer_request_adapter_strength_negative():
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         InferRequest(prompt="test", adapter_strength=-0.1)
