@@ -129,7 +129,7 @@ async def generate(
     control_mode: str = Form("canny"),
     controlnet_conditioning_scale: float = Form(0.5),
     control_image: UploadFile | None = File(None),
-    ip_adapter_images: list[UploadFile] | None = File(None),
+    ip_adapter_images: list[UploadFile] = File(default=[]),
     adapter_strength: float = Form(0.8),
 ):
     """Generate image with optional control image, returns SSE stream."""
@@ -218,7 +218,7 @@ async def generate(
             yield f"data: {complete_data}\n\n"
 
         except Exception as exc:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(exc)})}\n\n"
+            yield f"data: {json_module.dumps({'type': 'error', 'error': str(exc)})}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
