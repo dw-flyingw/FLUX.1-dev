@@ -41,3 +41,6 @@ app/assets/generated/*
 
 # Test outputs
 test_output_*.png
+
+# Downloaded model weights
+models/
