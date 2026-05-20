@@ -351,6 +351,7 @@ def _reload_model(devices: list[int]) -> None:
 @app.post("/v1/infer", response_model=InferResponse)
 async def infer(req: InferRequest):
     use_controlnet = bool(req.control_image)
+    use_ip_adapter = bool(req.ip_adapter_images)
     current_pipe = pipe_controlnet if use_controlnet else pipe_base
 
     if current_pipe is None:
@@ -401,23 +402,71 @@ async def infer(req: InferRequest):
                 ]
             )
 
+    # Decode IP-Adapter images if provided
+    ip_adapter_pil_images = []
+    if use_ip_adapter:
+        try:
+            for img_b64 in req.ip_adapter_images:
+                img_bytes = base64.b64decode(img_b64)
+                pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                ip_adapter_pil_images.append(pil_img)
+        except Exception as e:
+            return InferResponse(
+                artifacts=[
+                    Artifact(
+                        base64="",
+                        seed=0,
+                        finishReason="ERROR",
+                        errorReason=f"Failed to decode ip_adapter_image: {e}",
+                    )
+                ]
+            )
+
     scheduler_cls = SCHEDULER_MAP.get(req.sampler)
     if scheduler_cls:
         current_pipe.scheduler = scheduler_cls.from_config(
             current_pipe.scheduler.config
         )
 
+    # Set IP-Adapter scale; reset to 0 when not in use so prior state doesn't bleed
+    current_pipe.set_ip_adapter_scale(req.adapter_strength if use_ip_adapter else 0.0)
+
     generator = torch.Generator(device=_get_generator_device()).manual_seed(req.seed)
 
     try:
         with inference_lock:
-            if use_controlnet:
+            if use_controlnet and use_ip_adapter:
                 result = current_pipe(
                     prompt=req.prompt,
                     negative_prompt=req.negative_prompt if req.negative_prompt else None,
                     control_image=control_image,
                     control_mode=CONTROL_MODES[req.control_mode],
                     controlnet_conditioning_scale=req.controlnet_conditioning_scale,
+                    ip_adapter_image=ip_adapter_pil_images,
+                    width=req.width,
+                    height=req.height,
+                    num_inference_steps=req.steps,
+                    guidance_scale=req.guidance_scale,
+                    generator=generator,
+                )
+            elif use_controlnet:
+                result = current_pipe(
+                    prompt=req.prompt,
+                    negative_prompt=req.negative_prompt if req.negative_prompt else None,
+                    control_image=control_image,
+                    control_mode=CONTROL_MODES[req.control_mode],
+                    controlnet_conditioning_scale=req.controlnet_conditioning_scale,
+                    width=req.width,
+                    height=req.height,
+                    num_inference_steps=req.steps,
+                    guidance_scale=req.guidance_scale,
+                    generator=generator,
+                )
+            elif use_ip_adapter:
+                result = current_pipe(
+                    prompt=req.prompt,
+                    negative_prompt=req.negative_prompt if req.negative_prompt else None,
+                    ip_adapter_image=ip_adapter_pil_images,
                     width=req.width,
                     height=req.height,
                     num_inference_steps=req.steps,
