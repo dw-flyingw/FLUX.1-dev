@@ -208,9 +208,11 @@ app = FastAPI(lifespan=lifespan)
 class InferRequest(BaseModel):
     prompt: str
     negative_prompt: str = ""
-    control_image: str = ""  # base64-encoded control image (empty = text-only)
+    control_image: str = ""
     control_mode: str = "canny"
     controlnet_conditioning_scale: float = Field(default=0.5, ge=0.0, le=2.0)
+    ip_adapter_images: list[str] = []
+    adapter_strength: float = Field(default=0.8, ge=0.0, le=2.0)
     width: int = 1024
     height: int = 1024
     steps: int = Field(default=30, alias="steps")
