@@ -1,0 +1,41 @@
+[project]
+name = "flux-studio"
+version = "0.1.0"
+description = "Professional AI image generation interface powered by FLUX.1-dev"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "jinja2>=3.1.0",
+    "requests>=2.31.0",
+    "pillow>=10.2.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "openai>=1.12.0",
+    "python-multipart>=0.0.9",
+]
+
+[tool.setuptools]
+py-modules = ["core", "app"]
+
+[tool.setuptools.packages.find]
+include = ["utils*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.0",
+    "httpx>=0.28.0",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"

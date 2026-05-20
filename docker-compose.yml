@@ -1,0 +1,124 @@
+services:
+  flux-inference:
+    build:
+      context: .
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+        SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
+        REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+        CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+    container_name: flux-inference
+    restart: unless-stopped
+    runtime: nvidia
+    networks:
+      - default
+      - proxy-net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.flux-model.rule=Host(`sprocket.hst.rdlabs.hpecorp.net`) && PathPrefix(`/flux.1-dev`)"
+      - "traefik.http.routers.flux-model.entrypoints=web"
+      - "traefik.http.routers.flux-model.middlewares=flux-model-strip"
+      - "traefik.http.middlewares.flux-model-strip.stripprefix.prefixes=/flux.1-dev"
+      - "traefik.http.services.flux-model.loadbalancer.server.port=8000"
+      - "traefik.docker.network=proxy-net"
+
+    environment:
+      HF_HOME: /data/huggingface
+      HF_TOKEN: ${HF_TOKEN}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_GPU_DEVICE: ${NVIDIA_GPU_DEVICE:-0}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1}
+      SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
+      REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+      CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+
+    ports:
+      - "${FLUX_INFERENCE_PORT:-8630}:8000"
+
+    volumes:
+      - /data/huggingface:/data/huggingface:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
+
+    shm_size: '16gb'
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/health/ready')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+      start_interval: 10s
+
+  app:
+    build:
+      context: ./app
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
+        SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
+        REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+        CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+    env_file: .env
+    runtime: nvidia
+    networks:
+      proxy-net:
+        priority: 0
+      default:
+        priority: 1
+    ports:
+      - "${FRONTEND_PORT:-8631}:8080"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-net"
+      - "traefik.http.routers.flux-app.rule=Host(`sprocket.hst.rdlabs.hpecorp.net`) && PathPrefix(`/flux`)"
+      - "traefik.http.routers.flux-app.entrypoints=web"
+      - "traefik.http.routers.flux-app.middlewares=flux-app-strip"
+      - "traefik.http.middlewares.flux-app-strip.stripprefix.prefixes=/flux"
+      - "traefik.http.services.flux-app.loadbalancer.server.port=8080"
+      # Reverse proxy for /flux/api/* -> app service (for external BOM client access)
+      - "traefik.http.routers.flux-api.rule=Host(`sprocket.hst.rdlabs.hpecorp.net`) && PathPrefix(`/flux/api`)"
+      - "traefik.http.routers.flux-api.entrypoints=web"
+      - "traefik.http.routers.flux-api.middlewares=flux-api-strip"
+      - "traefik.http.middlewares.flux-api-strip.stripprefix.prefixes=/flux/api"
+      - "traefik.http.services.flux-api.loadbalancer.server.port=8080"
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NIM_HOST: flux-inference
+      FLUX_INFERENCE_PORT: "8000"
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1},flux-inference
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-localhost,127.0.0.1},flux-inference
+      SSL_CERT_FILE: /etc/ssl/certs/zscaler-root-ca.pem
+      REQUESTS_CA_BUNDLE: /etc/ssl/certs/zscaler-root-ca.pem
+      CURL_CA_BUNDLE: /etc/ssl/certs/zscaler-root-ca.pem
+    volumes:
+      - ./app:/app
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
+    depends_on:
+      - flux-inference
+
+networks:
+  default:
+    name: flux-network
+  proxy-net:
+    external: true

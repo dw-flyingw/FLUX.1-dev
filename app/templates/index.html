@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLUX.1-dev Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .drop-zone {
+            border: 2px dashed #d1d5db;
+            transition: all 0.2s;
+        }
+        .drop-zone.dragover {
+            border-color: #667eea;
+            background-color: #f0f0ff;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="gradient-bg text-white py-6">
+        <div class="container mx-auto px-4">
+            <h1 class="text-3xl font-bold">FLUX.1-dev Studio</h1>
+            <p class="text-purple-200">Professional AI Image Generation + ControlNet</p>
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Generation Panel -->
+            <div class="lg:col-span-2 bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">Generate Image</h2>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Prompt</label>
+                        <textarea id="prompt" rows="4" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-transparent" placeholder="Describe the image you want to generate..."></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Negative Prompt</label>
+                        <input type="text" id="negativePrompt" class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-purple-500" placeholder="What to avoid...">
+                    </div>
+
+                    <!-- ControlNet Section -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <label class="flex items-center space-x-2 cursor-pointer">
+                                <input type="checkbox" id="enableControlNet" class="rounded text-purple-600 focus:ring-purple-500" onchange="toggleControlNet()">
+                                <span class="text-sm font-medium text-gray-700">ControlNet (optional)</span>
+                            </label>
+                            <span class="text-xs text-gray-400">Shakker-Labs Union Pro 2.0</span>
+                        </div>
+
+                        <div id="controlNetSection" class="hidden space-y-3">
+                            <!-- Control Image Upload -->
+                            <div id="dropZone" class="drop-zone rounded-lg p-4 text-center cursor-pointer"
+                                 onclick="document.getElementById('controlImageInput').click()"
+                                 ondragover="event.preventDefault(); this.classList.add('dragover')"
+                                 ondragleave="this.classList.remove('dragover')"
+                                 ondrop="handleDrop(event)">
+                                <div id="dropZoneContent">
+                                    <svg class="mx-auto h-10 w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                                        <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                    <p class="mt-1 text-sm text-gray-600">Click or drag & drop a control image</p>
+                                    <p class="text-xs text-gray-500">PNG, JPG up to 10MB</p>
+                                </div>
+                                <div id="previewContainer" class="hidden">
+                                    <img id="controlPreview" class="max-h-40 mx-auto rounded">
+                                    <div class="mt-1 flex items-center justify-center space-x-2">
+                                        <span class="text-sm text-gray-500" id="controlFileName"></span>
+                                        <button onclick="event.stopPropagation(); clearControlImage()" class="text-red-500 hover:text-red-700 text-xs">[clear]</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <input type="file" id="controlImageInput" accept="image/*" class="hidden" onchange="handleFileSelect(this)">
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Control Mode</label>
+                                    <select id="controlMode" class="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                                        <option value="canny">Canny (Edge Detection)</option>
+                                        <option value="tile">Tile (Upscale/Detail)</option>
+                                        <option value="depth">Depth Map</option>
+                                        <option value="blur">Blur</option>
+                                        <option value="pose">Pose</option>
+                                        <option value="gray">Gray</option>
+                                        <option value="low_quality">Low Quality (Enhancement)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Conditioning Scale</label>
+                                    <input type="number" id="conditioningScale" value="0.5" step="0.05" min="0" max="2" class="w-full border border-gray-300 rounded-lg p-2 text-sm">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Steps</label>
+                            <input type="number" id="steps" value="28" min="1" max="50" class="w-full border border-gray-300 rounded-lg p-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Guidance</label>
+                            <input type="number" id="guidance" value="3.5" step="0.5" min="1" max="10" class="w-full border border-gray-300 rounded-lg p-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Aspect Ratio</label>
+                            <select id="aspectRatio" class="w-full border border-gray-300 rounded-lg p-2">
+                                <option value="1:1">1:1 (Square)</option>
+                                <option value="16:9">16:9 (Landscape)</option>
+                                <option value="9:16">9:16 (Portrait)</option>
+                                <option value="4:5">4:5</option>
+                                <option value="5:4">5:4</option>
+                                <option value="3:2">3:2</option>
+                                <option value="2:3">2:3</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Seed</label>
+                            <input type="number" id="seed" value="-1" class="w-full border border-gray-300 rounded-lg p-2" placeholder="-1 for random">
+                        </div>
+                    </div>
+
+                    <button id="generateBtn" onclick="generateImage()" class="w-full gradient-bg text-white font-semibold py-3 rounded-lg hover:opacity-90 transition-opacity">
+                        Generate
+                    </button>
+
+                    <div id="status" class="hidden text-center">
+                        <div class="loader mx-auto mb-2"></div>
+                        <p class="text-gray-600">Generating...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPU Info Panel -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">GPU Status</h2>
+                <div id="gpuInfo" class="space-y-3">
+                    <p class="text-gray-500">Loading GPU info...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Generated Image Display -->
+        <div class="mt-6 bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">Result</h2>
+            <div id="resultContainer" class="text-center">
+                <p class="text-gray-500">Generated images will appear here</p>
+            </div>
+        </div>
+
+        <!-- History Gallery -->
+        <div class="mt-6 bg-white rounded-lg shadow-lg p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-gray-800">History</h2>
+                <button onclick="purgeHistory()" class="text-red-600 hover:text-red-800 text-sm">Clear All</button>
+            </div>
+            <div id="historyGallery" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <p class="text-gray-500 col-span-full">No generations yet</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/flux/api';
+        let selectedFile = null;
+
+        function toggleControlNet() {
+            const section = document.getElementById('controlNetSection');
+            const enabled = document.getElementById('enableControlNet').checked;
+            section.classList.toggle('hidden', !enabled);
+            if (!enabled) {
+                clearControlImage();
+            }
+        }
+
+        function handleFileSelect(input) {
+            if (input.files && input.files[0]) {
+                selectedFile = input.files[0];
+                showPreview(selectedFile);
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            event.target.closest('.drop-zone').classList.remove('dragover');
+            if (event.dataTransfer.files && event.dataTransfer.files[0]) {
+                selectedFile = event.dataTransfer.files[0];
+                showPreview(selectedFile);
+            }
+        }
+
+        function showPreview(file) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('controlPreview').src = e.target.result;
+                document.getElementById('controlFileName').textContent = file.name;
+                document.getElementById('dropZoneContent').classList.add('hidden');
+                document.getElementById('previewContainer').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearControlImage() {
+            selectedFile = null;
+            document.getElementById('controlImageInput').value = '';
+            document.getElementById('dropZoneContent').classList.remove('hidden');
+            document.getElementById('previewContainer').classList.add('hidden');
+        }
+
+        async function loadGpuInfo() {
+            try {
+                const resp = await fetch(`${API_BASE}/gpu`);
+                const data = await resp.json();
+                const container = document.getElementById('gpuInfo');
+
+                if (data.gpus && data.gpus.length > 0) {
+                    container.innerHTML = data.gpus.map(gpu => `
+                        <div class="bg-gray-50 rounded-lg p-3">
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-medium text-gray-700">GPU ${gpu.index}</span>
+                                <span class="text-xs text-gray-500">${gpu.name}</span>
+                            </div>
+                            <div class="space-y-1 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Usage</span>
+                                    <span class="${gpu.utilization > 80 ? 'text-red-600' : 'text-green-600'}">${gpu.utilization}%</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Memory</span>
+                                    <span class="text-gray-700">${Math.round(gpu.memory_used / 1024)} / ${Math.round(gpu.memory_total / 1024)} MB</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Temp</span>
+                                    <span class="${gpu.temperature > 80 ? 'text-red-600' : 'text-gray-700'}">${gpu.temperature}°C</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<p class="text-gray-500">No GPUs detected</p>';
+                }
+            } catch (e) {
+                document.getElementById('gpuInfo').innerHTML = '<p class="text-red-500">Failed to load GPU info</p>';
+            }
+        }
+
+        async function generateImage() {
+            const controlNetEnabled = document.getElementById('enableControlNet').checked;
+
+            if (controlNetEnabled && !selectedFile) {
+                alert('ControlNet is enabled but no control image selected. Please upload a control image or disable ControlNet.');
+                return;
+            }
+
+            const btn = document.getElementById('generateBtn');
+            const status = document.getElementById('status');
+            const resultContainer = document.getElementById('resultContainer');
+
+            btn.disabled = true;
+            status.classList.remove('hidden');
+            resultContainer.innerHTML = '';
+
+            const formData = new FormData();
+            formData.append('prompt', document.getElementById('prompt').value);
+            formData.append('negative_prompt', document.getElementById('negativePrompt').value);
+            formData.append('steps', document.getElementById('steps').value);
+            formData.append('guidance_scale', document.getElementById('guidance').value);
+            formData.append('sampler', 'euler');
+            formData.append('aspect_ratio', document.getElementById('aspectRatio').value);
+            formData.append('seed', document.getElementById('seed').value || '-1');
+
+            if (controlNetEnabled && selectedFile) {
+                formData.append('control_image', selectedFile);
+                formData.append('control_mode', document.getElementById('controlMode').value);
+                formData.append('controlnet_conditioning_scale', document.getElementById('conditioningScale').value);
+            }
+
+            try {
+                const resp = await fetch(`${API_BASE}/generate`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const data = JSON.parse(line.slice(5));
+
+                        if (data.type === 'complete' && data.result) {
+                            const result = data.result;
+                            let detailsHtml = `
+                                <p class="text-sm text-gray-600"><strong>Prompt:</strong> ${result.prompt}</p>
+                            `;
+                            if (result.control_mode) {
+                                detailsHtml += `
+                                    <p class="text-sm text-gray-600"><strong>ControlNet:</strong> ${result.control_mode} (scale: ${result.controlnet_conditioning_scale})</p>
+                                `;
+                            }
+                            detailsHtml += `
+                                <p class="text-sm text-gray-600"><strong>Time:</strong> ${result.generation_time.toFixed(2)}s</p>
+                                <p class="text-sm text-gray-600"><strong>Seed:</strong> ${result.seed_used}</p>
+                            `;
+                            resultContainer.innerHTML = `
+                                <div class="max-w-2xl mx-auto">
+                                    <img src="data:image/png;base64,${result.image_b64}" alt="Generated image" class="rounded-lg shadow-lg mx-auto">
+                                    <div class="mt-4 text-left bg-gray-50 rounded-lg p-4">
+                                        ${detailsHtml}
+                                    </div>
+                                </div>
+                            `;
+                            loadHistory();
+                        } else if (data.type === 'error') {
+                            resultContainer.innerHTML = `<p class="text-red-600">Error: ${data.error}</p>`;
+                        }
+                        } catch (e) {
+                            console.error('Failed to parse SSE data:', e, 'Line:', line);
+                        }
+                    }
+                }
+            } catch (e) {
+                resultContainer.innerHTML = `<p class="text-red-600">Failed: ${e.message}</p>`;
+            } finally {
+                btn.disabled = false;
+                status.classList.add('hidden');
+            }
+        }
+
+        async function loadHistory() {
+            try {
+                const resp = await fetch(`${API_BASE}/history`);
+                const data = await resp.json();
+                const gallery = document.getElementById('historyGallery');
+
+                if (data.history && data.history.length > 0) {
+                    gallery.innerHTML = data.history.slice(0, 12).map(item => `
+                        <div class="relative group cursor-pointer" onclick="showHistoryItem('${item.timestamp}')">
+                            <img src="data:image/png;base64,${item.image_b64}" class="rounded-lg shadow hover:shadow-lg transition-shadow w-full h-32 object-cover">
+                            <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 rounded-lg transition-all flex items-center justify-center">
+                                <span class="text-white opacity-0 group-hover:opacity-100 text-xs">View</span>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        function showHistoryItem(timestamp) {
+            const history = window._history || [];
+            const item = history.find(h => h.timestamp === timestamp);
+            if (item) {
+                let detailsHtml = `<p class="text-sm text-gray-600"><strong>Prompt:</strong> ${item.prompt}</p>`;
+                if (item.control_mode) {
+                    detailsHtml += `<p class="text-sm text-gray-600"><strong>ControlNet:</strong> ${item.control_mode}</p>`;
+                }
+                detailsHtml += `
+                    <p class="text-sm text-gray-600"><strong>Time:</strong> ${item.generation_time.toFixed(2)}s</p>
+                    <p class="text-sm text-gray-600"><strong>Seed:</strong> ${item.seed_used}</p>
+                `;
+                document.getElementById('resultContainer').innerHTML = `
+                    <div class="max-w-2xl mx-auto">
+                        <img src="data:image/png;base64,${item.image_b64}" alt="Generated image" class="rounded-lg shadow-lg mx-auto">
+                        <div class="mt-4 text-left bg-gray-50 rounded-lg p-4">
+                            ${detailsHtml}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        async function purgeHistory() {
+            if (!confirm('Clear all generation history?')) return;
+            try {
+                await fetch(`${API_BASE}/history`, { method: 'DELETE' });
+                loadHistory();
+                document.getElementById('historyGallery').innerHTML = '<p class="text-gray-500 col-span-full">No generations yet</p>';
+            } catch (e) {
+                alert('Failed to clear history');
+            }
+        }
+
+        // Load GPU info every 10 seconds
+        loadGpuInfo();
+        setInterval(loadGpuInfo, 10000);
+        loadHistory();
+    </script>
+</body>
+</html>
