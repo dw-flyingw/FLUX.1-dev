@@ -38,10 +38,12 @@ def make_control_image(width: int = 512, height: int = 512) -> str:
 
 def test_health():
     print("1. Health check...", end=" ", flush=True)
+    start = time.time()
     resp = requests.get(f"{BASE_URL}/v1/health/ready", timeout=10)
+    elapsed = time.time() - start
     data = resp.json()
     if data.get("status") == "ready":
-        print("PASS")
+        print(f"PASS - {elapsed:.1f}s")
         return True
     print(f"FAIL - {data}")
     return False
@@ -49,10 +51,12 @@ def test_health():
 
 def test_ip_adapter_in_root():
     print("2. Root reports ip_adapter...", end=" ", flush=True)
+    start = time.time()
     resp = requests.get(f"{BASE_URL}/", timeout=10)
+    elapsed = time.time() - start
     data = resp.json()
     if "ip_adapter" in data and data.get("status") == "ready":
-        print(f"PASS - {data['ip_adapter']}")
+        print(f"PASS - {data['ip_adapter']}, {elapsed:.1f}s")
         return True
     print(f"FAIL - {data}")
     return False
@@ -174,9 +178,11 @@ def test_invalid_adapter_strength_rejected():
         "steps": 1,
         "seed": 1,
     }
+    start = time.time()
     resp = requests.post(f"{BASE_URL}/v1/infer", json=payload, timeout=30)
+    elapsed = time.time() - start
     if resp.status_code == 422:
-        print("PASS - rejected with HTTP 422")
+        print(f"PASS - rejected with HTTP 422, {elapsed:.1f}s")
         return True
     print(f"FAIL - expected 422, got {resp.status_code}")
     return False
