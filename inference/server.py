@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 BASE_MODEL_ID = "black-forest-labs/FLUX.1-dev"
 CONTROLNET_MODEL_ID = "Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0"
+IP_ADAPTER_MODEL_ID = "InstantX/FLUX.1-dev-IP-Adapter"
+IP_ADAPTER_WEIGHT_NAME = "ip-adapter.bin"
+IP_ADAPTER_LOCAL_DIR = "models/ip-adapter"
 
 CONTROL_MODES = {
     "canny": 0,
@@ -142,6 +145,17 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
             local_files_only=True,
         )
         logger.info("Models loaded with device_map='balanced' across GPUs %s", devices)
+        new_pipe_base.load_ip_adapter(
+            IP_ADAPTER_LOCAL_DIR,
+            weight_name=IP_ADAPTER_WEIGHT_NAME,
+            local_files_only=True,
+        )
+        new_pipe_cn.load_ip_adapter(
+            IP_ADAPTER_LOCAL_DIR,
+            weight_name=IP_ADAPTER_WEIGHT_NAME,
+            local_files_only=True,
+        )
+        logger.info("IP-Adapter loaded from %s", IP_ADAPTER_LOCAL_DIR)
     else:
         new_pipe_base = FluxPipeline.from_pretrained(
             BASE_MODEL_ID,
@@ -165,6 +179,17 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
         new_pipe_cn.to(f"cuda:{devices[0]}")
 
         logger.info("Models loaded on cuda:%d", devices[0])
+        new_pipe_base.load_ip_adapter(
+            IP_ADAPTER_LOCAL_DIR,
+            weight_name=IP_ADAPTER_WEIGHT_NAME,
+            local_files_only=True,
+        )
+        new_pipe_cn.load_ip_adapter(
+            IP_ADAPTER_LOCAL_DIR,
+            weight_name=IP_ADAPTER_WEIGHT_NAME,
+            local_files_only=True,
+        )
+        logger.info("IP-Adapter loaded from %s", IP_ADAPTER_LOCAL_DIR)
     return new_pipe_base, new_pipe_cn
 
 
@@ -241,12 +266,13 @@ async def root():
     return {
         "model": BASE_MODEL_ID,
         "controlnet": CONTROLNET_MODEL_ID,
+        "ip_adapter": IP_ADAPTER_MODEL_ID,
         "status": "ready" if pipe_base is not None else "loading",
         "control_modes": list(CONTROL_MODES.keys()),
         "endpoints": {
-            "health": "/flux.1-dev/v1/health/ready",
-            "infer": "/flux.1-dev/v1/infer",
-            "gpu_config": "/flux.1-dev/v1/gpu/config",
+            "health": "/v1/health/ready",
+            "infer": "/v1/infer",
+            "gpu_config": "/v1/gpu/config",
         },
     }
 
