@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 
 WORKDIR /app
 
@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir \
     --trusted-host pypi.org \
     --trusted-host pypi.python.org \
     --trusted-host files.pythonhosted.org \
+    "litserve==0.2.17" \
     "diffusers>=0.31.0" \
     "transformers>=4.40.0" \
     "accelerate>=0.30.0" \
@@ -37,4 +38,4 @@ COPY inference/ip_adapter_attention.py ip_adapter_attention.py
 
 EXPOSE 8000
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "server.py"]
