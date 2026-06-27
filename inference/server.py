@@ -313,8 +313,7 @@ class FluxLitAPI(ls.LitAPI):
 
 # --- Server wiring + custom routes -----------------------------------------
 _api = FluxLitAPI(api_path="/v1/infer", max_batch_size=1)
-server = ls.LitServer(_api, accelerator="cuda", devices=1, workers_per_device=1,
-                      healthcheck_path="/v1/health/ready")
+server = ls.LitServer(_api, accelerator="cuda", devices=1, workers_per_device=1)
 app = server.app  # exposed for `python server.py` / tooling
 
 
@@ -339,6 +338,16 @@ async def root():
         "control_modes": list(CONTROL_MODES.keys()),
         "endpoints": {"health": "/v1/health/ready", "infer": "/v1/infer", "gpu_config": "/v1/gpu/config"},
     }
+
+
+@app.get("/v1/health/ready")
+async def health_ready():
+    # JSON parity with the original server (returns {"status":"ready"}). LitServe
+    # runs the model in a separate worker process, so this server-process route
+    # can't observe worker load state; it reports ready. LitServe queues inference
+    # until the worker finishes setup(), so an early "ready" only yields a brief
+    # queue wait on the first request. LitServe's own readiness stays at /health.
+    return {"status": "ready"}
 
 
 @app.get("/v1/gpu/config")
