@@ -26,6 +26,8 @@ from PIL import Image
 from pydantic import BaseModel, Field, ValidationError
 from transformers import AutoProcessor, SiglipVisionModel
 
+from fastapi import HTTPException
+
 from ip_adapter_attention import IPAFluxAttnProcessor2_0
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -205,7 +207,6 @@ class FluxLitAPI(ls.LitAPI):
         (self.pipe_base, self.pipe_controlnet, self.siglip_model,
          self.siglip_processor, self.image_proj_model) = _load_model(self.active_devices)
         self.inference_lock = threading.Lock()
-        self.ready = True
 
     def decode_request(self, request, **kwargs):
         # `request` is the JSON body (dict). Validation errors become artifact
@@ -292,6 +293,7 @@ class FluxLitAPI(ls.LitAPI):
                     )
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
+            logger.error("CUDA OOM during inference: resolution=%dx%d steps=%d", req.width, req.height, req.steps)
             return _error_response(
                 f"GPU out of memory. Try reducing resolution ({req.width}x{req.height}) or steps ({req.steps})."
             )
@@ -346,7 +348,6 @@ async def gpu_config_get():
 
 @app.post("/v1/gpu/config")
 async def gpu_config_set(body: dict):
-    from fastapi import HTTPException
     devices = body.get("devices") or []
     if not devices:
         raise HTTPException(status_code=400, detail="At least one GPU must be selected")
