@@ -2,12 +2,20 @@
 import sys
 from unittest.mock import MagicMock
 sys.modules['torch'] = MagicMock()
+sys.modules['torch.nn'] = MagicMock()
+sys.modules['torch.nn.functional'] = MagicMock()
+sys.modules['torch.cuda'] = MagicMock()
 sys.modules['diffusers'] = MagicMock()
 sys.modules['diffusers.FluxPipeline'] = MagicMock()
+sys.modules['diffusers.models'] = MagicMock()
+sys.modules['diffusers.models.normalization'] = MagicMock()
 sys.modules['uvicorn'] = MagicMock()
 sys.modules['fastapi'] = MagicMock()  # NOTE: this makes HTTPException a MagicMock; do not add infer() tests here
 sys.modules['PIL'] = MagicMock()
 sys.modules['PIL.Image'] = MagicMock()
+sys.modules['transformers'] = MagicMock()
+sys.modules['numpy'] = MagicMock()
+sys.modules['ip_adapter_attention'] = MagicMock()
 # pydantic must be real for BaseModel/Field to work
 sys.path.insert(0, "inference")
 import pytest

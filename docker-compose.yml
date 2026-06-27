@@ -1,49 +1,34 @@
 services:
   flux-inference:
-    build:
-      context: .
-      args:
-        HTTP_PROXY: ${HTTP_PROXY:-}
-        HTTPS_PROXY: ${HTTPS_PROXY:-}
-        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
-        SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
-        REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
-        CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+    image: flux1-dev-flux-inference:blackwell
     container_name: flux-inference
     restart: unless-stopped
     runtime: nvidia
     networks:
       - default
       - proxy-net
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.flux-model.rule=Host(`sprocket.hst.rdlabs.hpecorp.net`) && PathPrefix(`/flux.1-dev`)"
-      - "traefik.http.routers.flux-model.entrypoints=web"
-      - "traefik.http.routers.flux-model.middlewares=flux-model-strip"
-      - "traefik.http.middlewares.flux-model-strip.stripprefix.prefixes=/flux.1-dev"
-      - "traefik.http.services.flux-model.loadbalancer.server.port=8000"
-      - "traefik.docker.network=proxy-net"
-
     environment:
       HF_HOME: /data/huggingface
       HF_TOKEN: ${HF_TOKEN}
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_GPU_DEVICE: ${NVIDIA_GPU_DEVICE:-0}
+      # Container is pinned to physical GPU 2 via device_ids below, so inside the
+      # container it appears as cuda:0.
+      NVIDIA_GPU_DEVICE: 0
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
       http_proxy: ${HTTP_PROXY:-}
       https_proxy: ${HTTPS_PROXY:-}
       no_proxy: ${NO_PROXY:-localhost,127.0.0.1}
-      SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
-      REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
-      CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+      SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/zscaler-root-ca.pem}
+      REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/zscaler-root-ca.pem}
+      CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/zscaler-root-ca.pem}
 
     ports:
       - "${FLUX_INFERENCE_PORT:-8630}:8000"
 
     volumes:
       - /data/huggingface:/data/huggingface:ro
+      - ./models:/app/models:ro
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
 
@@ -54,6 +39,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
+              device_ids: ["2"]
               capabilities: [gpu]
 
     healthcheck:
@@ -65,15 +51,7 @@ services:
       start_interval: 10s
 
   app:
-    build:
-      context: ./app
-      args:
-        HTTP_PROXY: ${HTTP_PROXY:-}
-        HTTPS_PROXY: ${HTTPS_PROXY:-}
-        NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1}
-        SSL_CERT_FILE: ${SSL_CERT_FILE:-/etc/ssl/certs/ca-bundle-combined.pem}
-        REQUESTS_CA_BUNDLE: ${REQUESTS_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
-        CURL_CA_BUNDLE: ${CURL_CA_BUNDLE:-/etc/ssl/certs/ca-bundle-combined.pem}
+    image: flux1-dev-app:latest
     env_file: .env
     runtime: nvidia
     networks:
@@ -83,14 +61,6 @@ services:
         priority: 1
     ports:
       - "${FRONTEND_PORT:-8631}:8080"
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=proxy-net"
-      # App serves all routes under /flux (incl. /flux/api/* and /flux/static/*),
-      # so forward the path through unchanged — do NOT strip the prefix.
-      - "traefik.http.routers.flux-app.rule=Host(`sprocket.hst.rdlabs.hpecorp.net`) && PathPrefix(`/flux`)"
-      - "traefik.http.routers.flux-app.entrypoints=web"
-      - "traefik.http.services.flux-app.loadbalancer.server.port=8080"
     environment:
       NVIDIA_VISIBLE_DEVICES: all
       NIM_HOST: flux-inference

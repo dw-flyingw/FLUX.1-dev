@@ -1,4 +1,4 @@
-"""FastAPI inference service for FLUX.1-dev with optional ControlNet."""
+"""FastAPI inference service for FLUX.1-dev with optional ControlNet and IP-Adapter."""
 
 import base64
 import io
@@ -9,6 +9,7 @@ import threading
 from contextlib import asynccontextmanager
 
 import torch
+import torch.nn as nn
 import uvicorn
 from diffusers import (
     AutoencoderKL,
@@ -21,6 +22,9 @@ from diffusers import (
 from fastapi import FastAPI, HTTPException
 from PIL import Image
 from pydantic import BaseModel, Field
+from transformers import AutoProcessor, SiglipVisionModel
+
+from ip_adapter_attention import IPAFluxAttnProcessor2_0
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -30,6 +34,8 @@ CONTROLNET_MODEL_ID = "Shakker-Labs/FLUX.1-dev-ControlNet-Union-Pro-2.0"
 IP_ADAPTER_MODEL_ID = "InstantX/FLUX.1-dev-IP-Adapter"
 IP_ADAPTER_WEIGHT_NAME = "ip-adapter.bin"
 IP_ADAPTER_LOCAL_DIR = "models/ip-adapter"
+SIGLIP_MODEL_ID = "google/siglip-so400m-patch14-384"
+IP_ADAPTER_NUM_TOKENS = 128
 
 CONTROL_MODES = {
     "canny": 0,
@@ -47,9 +53,33 @@ SCHEDULER_MAP = {
 
 pipe_base: FluxPipeline | None = None
 pipe_controlnet: FluxControlNetPipeline | None = None
+siglip_model: SiglipVisionModel | None = None
+siglip_processor = None
+image_proj_model = None
 inference_lock = threading.Lock()
 reload_lock = threading.Lock()
 active_devices: list[int] = []
+
+
+class MLPProjModel(nn.Module):
+    """Projects SigLIP embeddings into the IP-Adapter cross-attention space."""
+
+    def __init__(self, cross_attention_dim: int = 4096, id_embeddings_dim: int = 1152, num_tokens: int = 128):
+        super().__init__()
+        self.cross_attention_dim = cross_attention_dim
+        self.num_tokens = num_tokens
+        self.proj = nn.Sequential(
+            nn.Linear(id_embeddings_dim, id_embeddings_dim * 2),
+            nn.GELU(),
+            nn.Linear(id_embeddings_dim * 2, cross_attention_dim * num_tokens),
+        )
+        self.norm = nn.LayerNorm(cross_attention_dim)
+
+    def forward(self, id_embeds: torch.Tensor) -> torch.Tensor:
+        x = self.proj(id_embeds)
+        x = x.reshape(-1, self.num_tokens, self.cross_attention_dim)
+        x = self.norm(x)
+        return x
 
 
 def _parse_gpu_devices(raw: str) -> list[int]:
@@ -58,11 +88,7 @@ def _parse_gpu_devices(raw: str) -> list[int]:
 
 
 def _get_gpu_with_most_free_memory() -> int | None:
-    """Find GPU with the most free memory using nvidia-smi.
-
-    Returns:
-        GPU index with most free memory, or None if detection fails
-    """
+    """Find GPU with the most free memory using nvidia-smi."""
     try:
         result = subprocess.run(
             [
@@ -93,8 +119,46 @@ def _get_gpu_with_most_free_memory() -> int | None:
         return None
 
 
-def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipeline]:
-    """Load both pipelines onto the specified GPU(s), sharing base components."""
+def _setup_ip_adapter_on_transformer(transformer: FluxTransformer2DModel, ip_state_dict: dict) -> MLPProjModel:
+    """Replace attention processors with IP-Adapter variants and load weights."""
+    ip_attn_procs = {}
+    for name in transformer.attn_processors.keys():
+        if name.startswith("transformer_blocks.") or name.startswith("single_transformer_blocks"):
+            ip_attn_procs[name] = IPAFluxAttnProcessor2_0(
+                hidden_size=transformer.config.num_attention_heads * transformer.config.attention_head_dim,
+                cross_attention_dim=transformer.config.joint_attention_dim,
+                num_tokens=IP_ADAPTER_NUM_TOKENS,
+            )
+        else:
+            ip_attn_procs[name] = transformer.attn_processors[name]
+    transformer.set_attn_processor(ip_attn_procs)
+
+    # Load IP-Adapter attention weights
+    ip_layers = nn.ModuleList(
+        [proc for proc in transformer.attn_processors.values() if isinstance(proc, IPAFluxAttnProcessor2_0)]
+    )
+    ip_layers.load_state_dict(ip_state_dict["ip_adapter"], strict=False)
+    logger.info("IP-Adapter attention weights loaded (%d processors)", len(ip_layers))
+
+    # Build and load image projection model
+    proj_model = MLPProjModel(
+        cross_attention_dim=transformer.config.joint_attention_dim,
+        id_embeddings_dim=1152,
+        num_tokens=IP_ADAPTER_NUM_TOKENS,
+    )
+    proj_model.load_state_dict(ip_state_dict["image_proj"])
+    return proj_model
+
+
+def _load_model(
+    devices: list[int],
+) -> tuple[FluxPipeline, FluxControlNetPipeline, SiglipVisionModel, object, MLPProjModel]:
+    """Load all pipelines and IP-Adapter components onto specified GPU(s)."""
+    # Load ip-adapter checkpoint
+    ip_ckpt_path = os.path.join(IP_ADAPTER_LOCAL_DIR, IP_ADAPTER_WEIGHT_NAME)
+    logger.info("Loading IP-Adapter weights from %s", ip_ckpt_path)
+    ip_state_dict = torch.load(ip_ckpt_path, map_location="cpu", weights_only=False)
+
     # Load shared base components
     vae = AutoencoderKL.from_pretrained(
         BASE_MODEL_ID,
@@ -109,6 +173,9 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
         torch_dtype=torch.bfloat16,
         local_files_only=True,
     )
+
+    # Set up IP-Adapter on transformer (modifies attn_processors in-place)
+    proj_model = _setup_ip_adapter_on_transformer(transformer, ip_state_dict)
 
     # Load ControlNet model
     controlnet = FluxControlNetModel.from_pretrained(
@@ -145,18 +212,15 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
             local_files_only=True,
         )
         logger.info("Models loaded with device_map='balanced' across GPUs %s", devices)
-        new_pipe_base.load_ip_adapter(
-            IP_ADAPTER_LOCAL_DIR,
-            weight_name=IP_ADAPTER_WEIGHT_NAME,
-            local_files_only=True,
-        )
-        new_pipe_cn.load_ip_adapter(
-            IP_ADAPTER_LOCAL_DIR,
-            weight_name=IP_ADAPTER_WEIGHT_NAME,
-            local_files_only=True,
-        )
-        logger.info("IP-Adapter loaded from %s", IP_ADAPTER_LOCAL_DIR)
+
+        primary_device = f"cuda:{devices[0]}"
+        # Move IP-Adapter processors to primary device (transformer may be split, processors go with their layers)
+        for proc in transformer.attn_processors.values():
+            if isinstance(proc, IPAFluxAttnProcessor2_0):
+                proc.to(torch.bfloat16)
+        proj_model = proj_model.to(primary_device, dtype=torch.bfloat16)
     else:
+        primary_device = f"cuda:{devices[0]}"
         new_pipe_base = FluxPipeline.from_pretrained(
             BASE_MODEL_ID,
             scheduler=FlowMatchEulerDiscreteScheduler(),
@@ -165,7 +229,7 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
             torch_dtype=torch.bfloat16,
             local_files_only=True,
         )
-        new_pipe_base.to(f"cuda:{devices[0]}")
+        new_pipe_base.to(primary_device)
 
         new_pipe_cn = FluxControlNetPipeline.from_pretrained(
             BASE_MODEL_ID,
@@ -176,21 +240,25 @@ def _load_model(devices: list[int]) -> tuple[FluxPipeline, FluxControlNetPipelin
             torch_dtype=torch.bfloat16,
             local_files_only=True,
         )
-        new_pipe_cn.to(f"cuda:{devices[0]}")
+        new_pipe_cn.to(primary_device)
+        logger.info("Models loaded on %s", primary_device)
 
-        logger.info("Models loaded on cuda:%d", devices[0])
-        new_pipe_base.load_ip_adapter(
-            IP_ADAPTER_LOCAL_DIR,
-            weight_name=IP_ADAPTER_WEIGHT_NAME,
-            local_files_only=True,
-        )
-        new_pipe_cn.load_ip_adapter(
-            IP_ADAPTER_LOCAL_DIR,
-            weight_name=IP_ADAPTER_WEIGHT_NAME,
-            local_files_only=True,
-        )
-        logger.info("IP-Adapter loaded from %s", IP_ADAPTER_LOCAL_DIR)
-    return new_pipe_base, new_pipe_cn
+        # Move IP-Adapter processors and proj model to device
+        for proc in transformer.attn_processors.values():
+            if isinstance(proc, IPAFluxAttnProcessor2_0):
+                proc.to(primary_device, dtype=torch.bfloat16)
+        proj_model = proj_model.to(primary_device, dtype=torch.bfloat16)
+
+    # Load SigLIP image encoder from HF cache
+    logger.info("Loading SigLIP image encoder: %s", SIGLIP_MODEL_ID)
+    siglip = SiglipVisionModel.from_pretrained(
+        SIGLIP_MODEL_ID, torch_dtype=torch.bfloat16, local_files_only=True
+    )
+    siglip = siglip.to(primary_device).eval()
+    siglip_proc = AutoProcessor.from_pretrained(SIGLIP_MODEL_ID, local_files_only=True)
+    logger.info("SigLIP loaded on %s", primary_device)
+
+    return new_pipe_base, new_pipe_cn, siglip, siglip_proc, proj_model
 
 
 def _get_generator_device() -> str:
@@ -202,7 +270,7 @@ def _get_generator_device() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global pipe_base, pipe_controlnet, active_devices
+    global pipe_base, pipe_controlnet, siglip_model, siglip_processor, image_proj_model, active_devices
 
     raw = os.environ.get("NVIDIA_GPU_DEVICE", "auto")
 
@@ -219,11 +287,13 @@ async def lifespan(app: FastAPI):
     gpu_count = torch.cuda.device_count()
     logger.info("Starting with %d GPU(s) visible, selection: %s", gpu_count, active_devices)
 
-    pipe_base, pipe_controlnet = _load_model(active_devices)
+    pipe_base, pipe_controlnet, siglip_model, siglip_processor, image_proj_model = _load_model(active_devices)
 
     yield
     del pipe_base
     del pipe_controlnet
+    del siglip_model
+    del image_proj_model
     torch.cuda.empty_cache()
 
 
@@ -320,7 +390,7 @@ async def gpu_config_set(req: GpuConfigRequest):
 
 def _reload_model(devices: list[int]) -> None:
     """Unload current model and reload on new GPU(s). Runs in background thread."""
-    global pipe_base, pipe_controlnet, active_devices
+    global pipe_base, pipe_controlnet, siglip_model, siglip_processor, image_proj_model, active_devices
     try:
         logger.info(
             "GPU config change: %s -> %s - reloading model...", active_devices, devices
@@ -338,7 +408,7 @@ def _reload_model(devices: list[int]) -> None:
                 del old_cn
             torch.cuda.empty_cache()
 
-            pipe_base, pipe_controlnet = _load_model(devices)
+            pipe_base, pipe_controlnet, siglip_model, siglip_processor, image_proj_model = _load_model(devices)
             active_devices = devices
 
         logger.info("Model reload complete on GPU(s) %s", devices)
@@ -346,6 +416,16 @@ def _reload_model(devices: list[int]) -> None:
         logger.exception("Failed to reload model on GPU(s) %s", devices)
     finally:
         reload_lock.release()
+
+
+def _compute_image_emb(pil_images: list[Image.Image], device: str) -> torch.Tensor:
+    """Encode reference images with SigLIP and project to IP-Adapter embedding space."""
+    inputs = siglip_processor(images=pil_images, return_tensors="pt").pixel_values
+    inputs = inputs.to(device, dtype=torch.bfloat16)
+    with torch.no_grad():
+        siglip_embeds = siglip_model(inputs).pooler_output  # [n, 1152]
+        image_emb = image_proj_model(siglip_embeds)  # [n, 128, 4096]
+    return image_emb
 
 
 @app.post("/v1/infer", response_model=InferResponse)
@@ -423,55 +503,42 @@ async def infer(req: InferRequest):
             )
 
     generator = torch.Generator(device=_get_generator_device()).manual_seed(req.seed)
+    device = _get_generator_device()
 
     try:
         with inference_lock:
-            # Mutate shared pipeline state inside the lock to prevent races
+            # Mutate shared pipeline state inside the lock
             scheduler_cls = SCHEDULER_MAP.get(req.sampler)
             if scheduler_cls:
                 current_pipe.scheduler = scheduler_cls.from_config(
                     current_pipe.scheduler.config
                 )
-            # Reset to 0 when not using IP-Adapter so prior state doesn't bleed
-            current_pipe.set_ip_adapter_scale(req.adapter_strength if use_ip_adapter else 0.0)
 
-            if use_controlnet and use_ip_adapter:
+            # Compute image embeddings (or None) for IP-Adapter
+            if use_ip_adapter:
+                image_emb = _compute_image_emb(ip_adapter_pil_images, device)
+                for proc in current_pipe.transformer.attn_processors.values():
+                    if isinstance(proc, IPAFluxAttnProcessor2_0):
+                        proc.scale = req.adapter_strength
+            else:
+                image_emb = None
+
+            # image_emb=None disables IP-Adapter conditioning in the processor
+            jat_kwargs = {"image_emb": image_emb}
+
+            if use_controlnet:
                 result = current_pipe(
                     prompt=req.prompt,
                     negative_prompt=req.negative_prompt if req.negative_prompt else None,
                     control_image=control_image,
                     control_mode=CONTROL_MODES[req.control_mode],
                     controlnet_conditioning_scale=req.controlnet_conditioning_scale,
-                    ip_adapter_image=ip_adapter_pil_images,
                     width=req.width,
                     height=req.height,
                     num_inference_steps=req.steps,
                     guidance_scale=req.guidance_scale,
                     generator=generator,
-                )
-            elif use_controlnet:
-                result = current_pipe(
-                    prompt=req.prompt,
-                    negative_prompt=req.negative_prompt if req.negative_prompt else None,
-                    control_image=control_image,
-                    control_mode=CONTROL_MODES[req.control_mode],
-                    controlnet_conditioning_scale=req.controlnet_conditioning_scale,
-                    width=req.width,
-                    height=req.height,
-                    num_inference_steps=req.steps,
-                    guidance_scale=req.guidance_scale,
-                    generator=generator,
-                )
-            elif use_ip_adapter:
-                result = current_pipe(
-                    prompt=req.prompt,
-                    negative_prompt=req.negative_prompt if req.negative_prompt else None,
-                    ip_adapter_image=ip_adapter_pil_images,
-                    width=req.width,
-                    height=req.height,
-                    num_inference_steps=req.steps,
-                    guidance_scale=req.guidance_scale,
-                    generator=generator,
+                    joint_attention_kwargs=jat_kwargs,
                 )
             else:
                 result = current_pipe(
@@ -482,6 +549,7 @@ async def infer(req: InferRequest):
                     num_inference_steps=req.steps,
                     guidance_scale=req.guidance_scale,
                     generator=generator,
+                    joint_attention_kwargs=jat_kwargs,
                 )
     except torch.cuda.OutOfMemoryError:
         torch.cuda.empty_cache()

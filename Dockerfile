@@ -33,6 +33,7 @@ RUN pip install --no-cache-dir \
     "pillow>=10.2.0"
 
 COPY inference/server.py server.py
+COPY inference/ip_adapter_attention.py ip_adapter_attention.py
 
 EXPOSE 8000
 
