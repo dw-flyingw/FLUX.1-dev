@@ -186,10 +186,15 @@ def test_invalid_adapter_strength_rejected():
     start = time.time()
     resp = requests.post(f"{BASE_URL}/v1/infer", json=payload, timeout=30)
     elapsed = time.time() - start
-    if resp.status_code == 422:
-        print(f"PASS - rejected with HTTP 422, {elapsed:.1f}s")
-        return True
-    print(f"FAIL - expected 422, got {resp.status_code}")
+    # The LitServe port maps request-schema validation failures to a 200
+    # artifact-error (finishReason=ERROR), consistent with every other error
+    # branch, rather than the original FastAPI server's HTTP 422.
+    if resp.status_code == 200:
+        artifact = resp.json()["artifacts"][0]
+        if artifact.get("finishReason") == "ERROR":
+            print(f"PASS - rejected as artifact-error, {elapsed:.1f}s")
+            return True
+    print(f"FAIL - expected 200 artifact-error, got {resp.status_code}: {resp.text[:200]}")
     return False
 
 
