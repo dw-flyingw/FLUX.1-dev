@@ -170,7 +170,9 @@
         <div class="mt-6 bg-white rounded-lg shadow-lg p-6">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-semibold text-gray-800">History</h2>
+                {% if not hide_purge %}
                 <button onclick="purgeHistory()" class="text-red-600 hover:text-red-800 text-sm">Clear All</button>
+                {% endif %}
             </div>
             <div id="historyGallery" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                 <p class="text-gray-500 col-span-full">No generations yet</p>
@@ -362,6 +364,7 @@
                 const gallery = document.getElementById('historyGallery');
 
                 if (data.history && data.history.length > 0) {
+                    window._history = data.history;
                     gallery.innerHTML = data.history.slice(0, 12).map(item => `
                         <div class="relative group cursor-pointer" onclick="showHistoryItem('${item.timestamp}')">
                             <img src="data:image/png;base64,${item.image_b64}" class="rounded-lg shadow hover:shadow-lg transition-shadow w-full h-32 object-cover">
