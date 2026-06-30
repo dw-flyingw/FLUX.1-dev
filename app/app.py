@@ -328,9 +328,36 @@ async def history():
 
 @app.delete("/flux/api/history")
 async def history_purge():
-    raise HTTPException(status_code=403, detail="History deletion is disabled.")
+    """Purge all generation history."""
+    app_state.generation_history.clear()
+    gallery_path = get_asset_path("generated")
+    for f in gallery_path.glob("flux_*"):
+        try:
+            f.unlink(missing_ok=True)
+        except Exception:
+            continue
+    return {"purged": True}
 
 
 @app.delete("/flux/api/history/{timestamp}")
 async def history_delete(timestamp: str):
-    raise HTTPException(status_code=403, detail="History deletion is disabled.")
+    """Delete a single generation by its ISO timestamp."""
+    before = len(app_state.generation_history)
+    app_state.generation_history = deque(
+        (r for r in app_state.generation_history if r.get("timestamp") != timestamp),
+        maxlen=50,
+    )
+    if len(app_state.generation_history) == before:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    gallery_path = get_asset_path("generated")
+    for jf in gallery_path.glob("flux_*.json"):
+        try:
+            meta = json.loads(jf.read_text())
+            if meta.get("timestamp") == timestamp:
+                jf.unlink(missing_ok=True)
+                jf.with_suffix(".png").unlink(missing_ok=True)
+                break
+        except Exception:
+            continue
+    return {"deleted": timestamp}
