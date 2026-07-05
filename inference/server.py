@@ -7,9 +7,12 @@ semantics. See docs/superpowers/specs/2026-06-27-flux-litserve-port-design.md.
 
 import base64
 import io
+import json
 import logging
 import os
 import threading
+import time
+import urllib.request
 
 import litserve as ls
 import torch
@@ -374,6 +377,66 @@ async def gpu_config_set(body: dict):
         detail="Runtime cross-GPU reload is not supported in this deployment (GPU is pinned). "
                "Un-pin the container and redeploy to change GPUs.",
     )
+
+
+# --- OpenAI-compatible image generation (for the Bifrost gateway) ----------
+# Bifrost normalizes to OpenAI's POST /v1/images/generations. It forwards the
+# native OpenAI fields plus any unknown fields (control_image, control_mode,
+# controlnet_conditioning_scale, width, height, steps, guidance_scale, sampler,
+# seed, ip_adapter_images, …) as top-level JSON keys — so ControlNet rides
+# through untouched. This route reshapes that into our /v1/infer contract and
+# returns an OpenAI-shaped {"data":[{"b64_json": ...}]} response. It runs in the
+# LitServe *server* process, so it forwards in-process to /v1/infer (the worker
+# endpoint) rather than touching the pipeline directly.
+
+# OpenAI-only keys that /v1/infer (InferRequest) doesn't understand.
+_OPENAI_ONLY_KEYS = {"model", "n", "response_format", "quality", "style", "user", "stream", "size"}
+
+
+def _post_local_infer(payload: dict) -> dict:
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        "http://127.0.0.1:8000/v1/infer",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+@app.post("/v1/images/generations")
+def images_generations(body: dict):
+    """OpenAI-compatible shim over /v1/infer. Sync route → runs in FastAPI's
+    threadpool, so the blocking in-process call doesn't stall the event loop."""
+    if not body.get("prompt"):
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    infer = {k: v for k, v in body.items() if k not in _OPENAI_ONLY_KEYS}
+    # Map OpenAI `size` ("1024x1024") to width/height if not explicitly given.
+    size = body.get("size")
+    if size and "x" in str(size):
+        try:
+            w, h = (int(v) for v in str(size).lower().split("x"))
+            infer.setdefault("width", w)
+            infer.setdefault("height", h)
+        except ValueError:
+            pass
+    # Accept OpenAI-ish `num_inference_steps` as an alias for `steps`.
+    if "steps" not in infer and "num_inference_steps" in infer:
+        infer["steps"] = infer.pop("num_inference_steps")
+
+    result = _post_local_infer(infer)
+    artifacts = result.get("artifacts", [])
+    if not artifacts or artifacts[0].get("finishReason") != "SUCCESS":
+        reason = (artifacts[0].get("errorReason") if artifacts else "") or "generation failed"
+        finish = artifacts[0].get("finishReason") if artifacts else "ERROR"
+        # 503 for a still-loading model so callers can retry; 502 otherwise.
+        code = 503 if finish == "MODEL_NOT_READY" else 502
+        raise HTTPException(status_code=code, detail=reason)
+
+    data = [{"b64_json": a["base64"]} for a in artifacts if a.get("base64")]
+    return {"created": int(time.time()), "data": data}
 
 
 if __name__ == "__main__":

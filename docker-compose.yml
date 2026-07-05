@@ -29,6 +29,11 @@ services:
     volumes:
       - /data/huggingface:/data/huggingface:ro
       - ./models:/app/models:ro
+      # Overlay the edited server.py (adds the OpenAI-compatible
+      # /v1/images/generations shim used by the Bifrost gateway) over the baked
+      # copy without rebuilding the image. Source-of-truth is inference/server.py,
+      # which the Dockerfile also COPYs, so a future rebuild stays consistent.
+      - ./inference/server.py:/app/server.py:ro
       - /etc/ssl/certs:/etc/ssl/certs:ro
       - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates:ro
 
