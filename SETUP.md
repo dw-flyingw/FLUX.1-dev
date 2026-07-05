@@ -75,9 +75,9 @@ snapshot_download(
 ```
 
 ### 4. Access
-- **Web UI**: http://sprocket.hst.rdlabs.hpecorp.net/flux
-- **API**: http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer
-- **Health**: http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev/v1/health/ready
+- **Web UI**: https://moto.hst.rdlabs.hpecorp.net/flux
+- **API**: https://moto.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer
+- **Health**: https://moto.hst.rdlabs.hpecorp.net/flux.1-dev/v1/health/ready
 
 ## API Example
 

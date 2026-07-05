@@ -3,7 +3,7 @@
 **Endpoint:** `POST /v1/infer`
 
 **Base URLs:**
-- External (via Traefik): `http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev` — strips `/flux.1-dev` prefix, e.g. `POST http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer`
+- External (via Traefik): `https://moto.hst.rdlabs.hpecorp.net/flux.1-dev` — strips `/flux.1-dev` prefix, e.g. `POST https://moto.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer`
 - Direct on host: `http://<host>:8630` (host port `8630` → container port `8000`)
 
 ## Request body (`InferRequest`)

@@ -11,4 +11,4 @@
 
   Web UI: http://localhost:8631/flux
 
-  Via Traefik: http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer
+  Via Traefik: https://moto.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer

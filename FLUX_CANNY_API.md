@@ -5,10 +5,10 @@ Reference for calling the FLUX.1-dev inference service with the Canny ControlNet
 ## Base URL
 
 ```
-http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev
+https://moto.hst.rdlabs.hpecorp.net/flux.1-dev
 ```
 
-Routed through Traefik on the HPE corporate network. The `/flux.1-dev` prefix is stripped before reaching the service. Direct (host-local) URL is `http://sprocket.hst.rdlabs.hpecorp.net:8630`.
+Routed through Traefik on the HPE corporate network (HTTP redirects to HTTPS). The `/flux.1-dev` prefix is stripped before reaching the service. Direct (host-local) URL is `http://moto.hst.rdlabs.hpecorp.net:8630`.
 
 ## Endpoints
 
@@ -75,7 +75,7 @@ control_b64 = base64.b64encode(buf.tobytes()).decode()
 
 ```bash
 CONTROL_B64=$(base64 -w0 canny_edges.png)
-curl -X POST http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer \
+curl -X POST https://moto.hst.rdlabs.hpecorp.net/flux.1-dev/v1/infer \
   -H "Content-Type: application/json" \
   -d @- <<JSON | jq -r '.artifacts[0].base64' | base64 -d > out.png
 {
@@ -98,7 +98,7 @@ JSON
 import base64, io, cv2, requests
 from PIL import Image
 
-BASE = "http://sprocket.hst.rdlabs.hpecorp.net/flux.1-dev"
+BASE = "https://moto.hst.rdlabs.hpecorp.net/flux.1-dev"
 
 img = cv2.imread("source.jpg")
 edges = cv2.cvtColor(cv2.Canny(img, 100, 200), cv2.COLOR_GRAY2RGB)
